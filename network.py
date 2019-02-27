@@ -7,15 +7,15 @@ import numpy as np
 import torchvision.models as models
 
 class BERT(nn.Module):
-    def __init__(self, num_labels=58):
+    def __init__(self, opt, num_labels=58):
         super().__init__()
         
         self.num_labels= num_labels
         self.bert = BertModel.from_pretrained('bert-base-uncased')
         self.dropout = nn.Dropout(0.1)
         self.resnet = torch.nn.Sequential(*(list(models.resnet152(pretrained=True).children())[:-1]))
-        self.resnet_downsample = torch.nn.Linear(2048, 768)
-        self.classifier = torch.nn.Linear(768*2, num_labels)
+        self.resnet_downsample = torch.nn.Linear(2048, opt.last_layer_size)
+        self.classifier = torch.nn.Linear(768+opt.last_layer_size, num_labels)
 
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None, image=None):

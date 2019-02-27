@@ -26,14 +26,55 @@ parser = argparse.ArgumentParser(description='ndsc')
 parser.add_argument('--expand', action='store_true', help='expand dataset?')
 parser.add_argument('--epoch', type=int, default=10, help='number of epochs')
 parser.add_argument('--batchsize', type=int, default=32, help='train batch size')
-parser.add_argument('--est', type=int, default=3, help='train batch size')
+parser.add_argument('--est', type=int, default=3, help='early stopping')
+parser.add_argument('--downsample', type=int, default=1000, help='number to downsample imbalanced classes')
+parser.add_argument('--save_dir', type=str, default="experiments/", help='path/to/save_dir - default:experiments/')
+parser.add_argument('--name', type=str, default=None, help='name of the experiment. It decides where to store samples and models. if none, it will be saved as the date and time')
 
-def fit(args, train_dataloader, optimizer, eval_examples):
+parser.add_argument('--fp16', action='store_true', help='floating point support?')
+parser.add_argument('--gradient_accumulation_steps', type=int, default=1, help='optimizer gradient accumulation')
+parser.add_argument('--seed', type=int, default=42, help='seed')
+parser.add_argument('--warmup_proportion', type=float, default=0.1, help='optimizer warmup')
+parser.add_argument('--learning_rate', type=float, default=3e-5, help='learning rate')
+parser.add_argument('--do_lower_case', type=bool, default=True, help='tokenizer lower case')
+parser.add_argument('--max_seq_length', type=int, default=64, help='max sequence length')
+    
+def print_options(opt):
+    message = ''
+    message += '----------------- Options ---------------\n'
+    for k, v in sorted(vars(opt).items()):
+        comment = ''
+        default = parser.get_default(k)
+        if v != default:
+            comment = '\t[default: %s]' % str(default)
+        message += '{:>25}: {:<30}{}\n'.format(str(k), str(v), comment)
+    message += '----------------- End -------------------'
+    print(message)
+    # save to the disk
+    mkdirs(opt.save_path)
+    file_name = os.path.join(opt.save_path, 'opt.txt')
+    with open(file_name, 'wt') as opt_file:
+        opt_file.write(message)
+        opt_file.write('\n')
+        
+def set_default_opt(opt):
+    if not opt.name:
+        now = datetime.datetime.now()
+        opt.name = now.strftime("%Y-%m-%d-%H-%M")
+    opt.save_path = os.path.join(opt.save_dir,opt.name)
+    opt.eval_batch_size = opt.batchsize
+    opt.train_batch_size = opt.batchsize
+    
+    return opt
+
+def fit(opt, train_dataloader, optimizer, eval_examples):
     
     global_step = 0
     cur_epoch = 0
+    best = 0
+    thres = 0
     model.train()
-    for i_ in tqdm(range(int(args['num_train_epochs'])), desc="Epoch"):
+    for i_ in tqdm(range(int(opt.num_train_epochs)), desc="Epoch"):
 
         tr_loss = 0
         nb_tr_examples, nb_tr_steps = 0, 0
@@ -44,10 +85,10 @@ def fit(args, train_dataloader, optimizer, eval_examples):
             img = img.permute(0,3,1,2)
             assert img.shape[1:] == (3,224,224)
             loss = model(input_ids, segment_ids, input_mask, label_ids, image=img)
-            if args['gradient_accumulation_steps'] > 1:
-                loss = loss / args['gradient_accumulation_steps']
+            if opt.gradient_accumulation_steps > 1:
+                loss = loss / opt.gradient_accumulation_steps
 
-            if args['fp16']:
+            if opt.fp16:
                 optimizer.backward(loss)
             else:
                 loss.backward()
@@ -55,10 +96,10 @@ def fit(args, train_dataloader, optimizer, eval_examples):
             tr_loss += loss.item()
             nb_tr_examples += input_ids.size(0)
             nb_tr_steps += 1
-            if (step + 1) % args['gradient_accumulation_steps'] == 0:
+            if (step + 1) % opt.gradient_accumulation_steps == 0:
     #             scheduler.batch_step()
                 # modify learning rate with special warm up BERT uses
-                lr_this_step = args['learning_rate'] * warmup_linear(global_step/t_total, args['warmup_proportion'])
+                lr_this_step = opt.learning_rate * warmup_linear(global_step/t_total, opt.warmup_proportion)
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = lr_this_step
                 optimizer.step()
@@ -73,16 +114,25 @@ def fit(args, train_dataloader, optimizer, eval_examples):
 
         logger.info('Loss after epoc {}'.format(tr_loss / nb_tr_steps))
         logger.info('Eval after epoc {}'.format(i_+1))
-        save_checkpoint(state, False, args, filename=str(cur_epoch)+"_checkpoint.pth.tar")
+        save_checkpoint(state, False, opt, filename=str(cur_epoch)+"_checkpoint.pth.tar")
         cur_epoch += 1 
-        eval(eval_examples)
+        eval_acc = eval(eval_examples, opt)
+        if eval_acc['top1'] > best:
+            save_checkpoint(state, True, opt)
+            best= eval_acc['top1']
+            thres = 0
+        else:
+            thres +=1
+        if thres >= opt.est:
+            print("early stopping triggered")
+            break
+            
         
 
-def save_checkpoint(state, is_best, args, filename='checkpoint.pth.tar'):
+def save_checkpoint(state, is_best, opt, filename='checkpoint.pth.tar'):
     print('saving checkpoint..')
-    torch.save(state, os.path.join('experiments/', filename))
-    if is_best:
-        torch.save(state, os.path.join('experiments/', 'model_best.pth.tar'))
+    if is_best: torch.save(state, os.path.join(opt.save_path, 'model_best.pth.tar'))
+    else: torch.save(state, os.path.join(opt.save_path, filename))
 
 def accuracy(out, labels):
     outputs = np.argmax(out, axis=1)
@@ -104,14 +154,14 @@ def accuracy_thresh(y_pred:Tensor, y_true:Tensor):
             top1 +=1
     return top5, top3, top1 
     
-def eval(eval_examples):
+def eval(eval_examples, opt):
 
 
-    eval_features = convert_examples_to_features(eval_examples, label_list, args['max_seq_length'], tokenizer)
+    eval_features = convert_examples_to_features(eval_examples, opt.max_seq_length, tokenizer)
     eval_data = SequenceImgDataset(eval_features)
     logger.info("***** Running evaluation *****")
     logger.info("  Num examples = %d", len(eval_examples))
-    logger.info("  Batch size = %d", args['eval_batch_size'])
+    logger.info("  Batch size = %d", opt.eval_batch_size)
     # all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
     # all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
     # all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
@@ -121,7 +171,7 @@ def eval(eval_examples):
     
     # Run prediction for full data
     eval_sampler = SequentialSampler(eval_data)
-    eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args['eval_batch_size'])
+    eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=opt.eval_batch_size)
     
     all_logits = None
     all_labels = None
@@ -140,7 +190,7 @@ def eval(eval_examples):
 
         with torch.no_grad():
             tmp_eval_loss = model(input_ids, segment_ids, input_mask, label_ids, image=img)
-            logits = model(input_ids, segment_ids, input_mask)
+            logits = model(input_ids, segment_ids, input_mask, image=img)
 
 #         logits = logits.detach().cpu().numpy()
 #         label_ids = label_ids.to('cpu').numpy()
@@ -175,7 +225,7 @@ def eval(eval_examples):
               'top3': eval_top3_accuracy,
               'top1': eval_top1_accuracy}
 
-    output_eval_file = os.path.join(args['output_dir'], "eval_results.txt")
+    output_eval_file = os.path.join(opt.save_path, "eval_results.txt")
     with open(output_eval_file, "w") as writer:
         logger.info("***** Eval results *****")
         for key in sorted(result.keys()):
@@ -195,58 +245,47 @@ def load_checkpoint(path, model):
 
 
     return model
+
+def model_ensemble(state_dicts):
+    num_dicts = len(state_dicts)
     
+    new_dict = dict(state_dicts[0]).deepcopy()
+    for name, param in state_dicts[0].named_parameters():
+        new_dict[name].data.copy_(np.mean([statedict[name].data for statedict in statedicts]))
+        
+    return new_dict
+
+
 if __name__ == '__main__':
-    opt = parser.parse_args()
-    args = {
-    "train_size": -1,
-    "val_size": -1,
-    "task_name": "bb_qa",
-    "no_cuda": False,
-    "output_dir": 'experiments/output',
-    "max_seq_length": 64,
-    "do_train": True,
-    "do_eval": True,
-    "do_lower_case": True,
-    "train_batch_size": opt.batchsize,
-    "eval_batch_size": opt.batchsize,
-    "learning_rate": 3e-5,
-    "num_train_epochs": opt.epoch,
-    "warmup_proportion": 0.1,
-    "no_cuda": False,
-    "local_rank": -1,
-    "seed": 42,
-    "gradient_accumulation_steps": 1,
-    "optimize_on_cpu": False,
-    "fp16": False,
-    "loss_scale": 128
-    }
-    model = BERT().cuda()
+    opt = parser.parse_opt()
+    opt= set_default_opt(opt)
+    print_options(opt)
+    model = BERT(opt).cuda()
     # model = load_checkpoint('experiments/0_checkpoint.pth.tar', model).cuda()
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=args['do_lower_case'])
-    random.seed(args['seed'])
-    np.random.seed(args['seed'])
-    torch.manual_seed(args['seed'])
-    torch.cuda.manual_seed_all(args['seed'])
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=opt.do_lower_case)
+    random.seed(opt.seed)
+    np.random.seed(opt.seed)
+    torch.manual_seed(opt.seed)
+    torch.cuda.manual_seed_all(opt.seed)
     
-    if os.path.isfile('data/train_stuff.pkl'):
-        with open('data/train_stuff.pkl', 'rb') as p:
-            print('data/train_stuff.pkl found!')
-            processor, train_examples, label_list, train_features, eval_examples= pickle.load(p)
-            print('data/train_stuff.pkl loaded!')
-    else:
-        processor = MultiLabelTextProcessor()
-        train_examples = processor.get_train_examples()
-        label_list = processor.get_labels()
-        train_features = convert_examples_to_features(train_examples, label_list, args['max_seq_length'], tokenizer)
-        eval_examples = processor.get_dev_examples()
-        with open('data/train_stuff.pkl', 'wb') as f:
-            pickle.dump([processor, train_examples, label_list, train_features, eval_examples],f)  
-            print('data/train_stuff.pkl! saved')
+    # if os.path.isfile('data/train_stuff.pkl'):
+    #     with open('data/train_stuff.pkl', 'rb') as p:
+    #         print('data/train_stuff.pkl found!')
+    #         processor, train_examples, label_list, train_features, eval_examples= pickle.load(p)
+    #         print('data/train_stuff.pkl loaded!')
+    # else:
+    processor = MultiLabelTextProcessor(max_num=opt.downsample)
+    train_examples = processor.get_train_examples()
+    label_list = processor.get_labels()
+    train_features = convert_examples_to_features(train_examples, label_list, opt.max_seq_length, tokenizer)
+    eval_examples = processor.get_dev_examples()
+        # with open('data/train_stuff.pkl', 'wb') as f:
+        #     pickle.dump([processor, train_examples, label_list, train_features, eval_examples],f)  
+        #     print('data/train_stuff.pkl! saved')
         
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_examples))
-    logger.info("  Batch size = %d", args['train_batch_size'])
+    logger.info("  Batch size = %d", opt.train_batch_size)
     train_data = SequenceImgDataset(train_features)
     # all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
     # all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
@@ -255,8 +294,8 @@ if __name__ == '__main__':
     # all_img_pth = torch.tensor([f.image for f in train_features], dtype=torch.uint8)
     # train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_img_pth)
     train_sampler = RandomSampler(train_data)
-    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args['train_batch_size'], num_workers=0)
-    num_train_steps = int(len(train_examples) / args['train_batch_size'] / args['gradient_accumulation_steps'] * args['num_train_epochs'])
+    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=opt.train_batch_size, num_workers=4)
+    num_train_steps = int(len(train_examples) / opt.train_batch_size / opt.gradient_accumulation_steps * opt.num_train_epochs)
     t_total = num_train_steps
     param_optimizer = list(model.named_parameters())
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
@@ -265,7 +304,7 @@ if __name__ == '__main__':
     {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
     ]
     optimizer = BertAdam(optimizer_grouped_parameters,
-                         lr=args['learning_rate'],
-                         warmup=args['warmup_proportion'],
-                         t_total=t_total)
-    fit(args, train_dataloader, optimizer, eval_examples)
+                         lr=opt.learning_rate,
+                         warmup=opt.warmup_proportion,
+                         t_total = t_total)
+    fit(opt, train_dataloader, optimizer, eval_examples)

@@ -32,5 +32,5 @@ class SequenceImgDataset(Dataset):
         return self.all_input_ids.shape[0]
 
     def __getitem__(self, i):
-
-        return   self.all_input_ids[i], self.all_input_mask[i], self.all_segment_ids[i], self.all_label_ids[i], torch.tensor(np.array(Image.open('data/'+self.all_img_pth[i]).resize((224,224))) ,dtype=torch.float)
+        image = torch.tensor(np.array(Image.open('data/'+self.all_img_pth[i]).convert('RGB').resize((224,224))) ,dtype=torch.float)
+        return   self.all_input_ids[i], self.all_input_mask[i], self.all_segment_ids[i], self.all_label_ids[i], image

@@ -61,7 +61,7 @@ class DataProcessor(object):
     
 class MultiLabelTextProcessor(DataProcessor):
 
-    def __init__(self, data_dir='data/'):
+    def __init__(self, data_dir='data/', max_num=1000):
         self.data_dir = data_dir
         self.labels = None
         filename = 'train.csv'
@@ -70,10 +70,10 @@ class MultiLabelTextProcessor(DataProcessor):
         keep = []
         for i in range(58):
             idxs = self.data_df.index[self.data_df.Category==i].tolist()
-            if 500 > len(idxs):
+            if max_num > len(idxs):
                 keep += random.sample(idxs,  len(idxs))
             else:
-                keep += random.sample(idxs,  100)
+                keep += random.sample(idxs,  max_num)
         self.data_df = self.data_df.iloc[keep,:].reset_index(drop=True)
         total_rows =  self.data_df.shape[0]
         print("total number of rows", total_rows)
@@ -103,7 +103,7 @@ class MultiLabelTextProcessor(DataProcessor):
             data_df = pd.read_csv(os.path.join(data_dir, filename))
             return self._create_examples(data_df.sample(size), "dev")
 
-    def get_test_examples(self, data_dir, data_file_name, size=-1):
+    def get_test_examples(self, size=-1):
         if size == -1:
             return self._create_examples(self.test_df, "test")
         else:
@@ -119,7 +119,6 @@ class MultiLabelTextProcessor(DataProcessor):
         """Creates examples for the training and dev sets."""
         examples = []
         for (i, row) in enumerate(df.values):
-            print(i)
             guid = row[0]
             text_a = row[1]
             img_path = row[3]
@@ -135,10 +134,9 @@ class MultiLabelTextProcessor(DataProcessor):
         return examples
                 
                         
-def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer):
+def convert_examples_to_features(examples, max_seq_length, tokenizer):
     """Loads a data file into a list of `InputBatch`s."""
 
-    label_map = {label : i for i, label in enumerate(label_list)}
 
     features = []
     for (ex_index, example) in enumerate(examples):
@@ -233,4 +231,3 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
             tokens_a.pop()
         else:
             tokens_b.pop()           
-             
