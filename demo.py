@@ -4,9 +4,14 @@ import torch.nn as nn
 import time
 from dataloaders import *
 from dataset import *
+import argparse
+from tqdm import tqdm
 
+parser = argparse.ArgumentParser(description='ndsc_eval')
 parser.add_argument('--last_layer_size', type=int, default=768, help='last layer size for resnet')
-opt = parser.parse_opt()
+parser.add_argument('--batchsize', type=int, default=64, help='train batch size')
+
+opt = parser.parse_args()
 
 def load_checkpoint(path, model):
     checkpoint = torch.load(path)
@@ -29,7 +34,7 @@ if __name__ == '__main__':
     test_features = convert_examples_to_features(test_examples, MAX_SEQ_LEN, tokenizer)
     test_dataset = SequenceImgDataset(test_features)
     test_sampler = SequentialSampler(test_dataset)
-    test_dataloader = DataLoader(test_dataset, sampler=test_sampler, batch_size=32)
+    test_dataloader = DataLoader(test_dataset, sampler=test_sampler, batch_size=opt.batchsize, num_workers=4)
     with torch.no_grad():
         # for i, strin in test.iterrows():
         #     stime = time.time()
@@ -53,11 +58,12 @@ if __name__ == '__main__':
         #     assert image.shape[1:] == (3,224,224)
         #     labels_ids = []
         #     logits = model(torch.tensor(input_ids).unsqueeze(0).cuda(), torch.tensor(segment_ids).unsqueeze(0).cuda(), torch.tensor(input_mask).unsqueeze(0).cuda(), labels=None, image = image)
-        for i, (input_ids, input_mask, segment_ids, label_ids, img) in enumerate(test_dataloader):
+        print("test starting..")
+        for i, (input_ids, input_mask, segment_ids, _, img) in enumerate(tqdm(test_dataloader)):
             input_ids = input_ids.cuda()
             input_mask = input_mask.cuda()
             segment_ids = segment_ids.cuda()
-            label_ids = label_ids.cuda()
+            no = input_ids.shape[0]
             img = img.permute(0,3,1,2)
             assert img.shape[1:] == (3,224,224)
             img = img.cuda()
@@ -65,9 +71,8 @@ if __name__ == '__main__':
             logits = model(input_ids, segment_ids, input_mask, image=img)
             pred = softmax(logits)
             pred=  torch.argmax(pred, dim=1).cpu().numpy()
-            print('ans', pred)
-            sample.loc[list(range((i-1)*32,32*i)),'Category'] = ans
+            sample.loc[list(range(i*opt.batchsize,(i*opt.batchsize)+no)),'Category'] = pred
                 
             # print("time taken for one search: ", time.time()-stime, "seconds")
     
-    sample.to_csv('submission.csv', index=False
+    sample.to_csv('submission.csv', index=False)

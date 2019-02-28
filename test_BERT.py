@@ -1,3 +1,4 @@
+import datetime
 import ast
 import logging
 from dataset import *
@@ -28,9 +29,14 @@ parser.add_argument('--epoch', type=int, default=10, help='number of epochs')
 parser.add_argument('--batchsize', type=int, default=32, help='train batch size')
 parser.add_argument('--est', type=int, default=3, help='early stopping')
 parser.add_argument('--downsample', type=int, default=1000, help='number to downsample imbalanced classes')
+parser.add_argument('--images', type=bool, default=True, help='dont use images to train')
+parser.add_argument('--resnet', type=str, default='resnet152',choices=['resnet18', 'resnet34', 'resnet50','resnet101','resnet152'], help='choice of resnet')
+parser.add_argument('--no_bert', action='store_true', help='dont use bert')
+
 parser.add_argument('--save_dir', type=str, default="experiments/", help='path/to/save_dir - default:experiments/')
 parser.add_argument('--name', type=str, default=None, help='name of the experiment. It decides where to store samples and models. if none, it will be saved as the date and time')
 
+parser.add_argument('--last_layer_size', type=int, default=768, help='last layer size for resnet')
 parser.add_argument('--fp16', action='store_true', help='floating point support?')
 parser.add_argument('--gradient_accumulation_steps', type=int, default=1, help='optimizer gradient accumulation')
 parser.add_argument('--seed', type=int, default=42, help='seed')
@@ -66,7 +72,19 @@ def set_default_opt(opt):
     opt.train_batch_size = opt.batchsize
     
     return opt
+    
+def mkdirs(paths):
+    if isinstance(paths, list) and not isinstance(paths, str):
+        for path in paths:
+            mkdir(path)
+    else:
+        mkdir(paths)
 
+
+def mkdir(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+        
 def fit(opt, train_dataloader, optimizer, eval_examples):
     
     global_step = 0
@@ -74,7 +92,7 @@ def fit(opt, train_dataloader, optimizer, eval_examples):
     best = 0
     thres = 0
     model.train()
-    for i_ in tqdm(range(int(opt.num_train_epochs)), desc="Epoch"):
+    for i_ in tqdm(range(int(opt.epoch)), desc="Epoch"):
 
         tr_loss = 0
         nb_tr_examples, nb_tr_steps = 0, 0
@@ -171,7 +189,7 @@ def eval(eval_examples, opt):
     
     # Run prediction for full data
     eval_sampler = SequentialSampler(eval_data)
-    eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=opt.eval_batch_size)
+    eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=opt.eval_batch_size, num_workers=4)
     
     all_logits = None
     all_labels = None
@@ -230,7 +248,7 @@ def eval(eval_examples, opt):
         logger.info("***** Eval results *****")
         for key in sorted(result.keys()):
             logger.info("  %s = %s", key, str(result[key]))
-#             writer.write("%s = %s\n" % (key, str(result[key])))
+            writer.write("%s = %s\n" % (key, str(result[key])))
     return result
     
 def warmup_linear(x, warmup=0.002):
@@ -257,7 +275,7 @@ def model_ensemble(state_dicts):
 
 
 if __name__ == '__main__':
-    opt = parser.parse_opt()
+    opt = parser.parse_args()
     opt= set_default_opt(opt)
     print_options(opt)
     model = BERT(opt).cuda()
@@ -276,8 +294,7 @@ if __name__ == '__main__':
     # else:
     processor = MultiLabelTextProcessor(max_num=opt.downsample)
     train_examples = processor.get_train_examples()
-    label_list = processor.get_labels()
-    train_features = convert_examples_to_features(train_examples, label_list, opt.max_seq_length, tokenizer)
+    train_features = convert_examples_to_features(train_examples, opt.max_seq_length, tokenizer)
     eval_examples = processor.get_dev_examples()
         # with open('data/train_stuff.pkl', 'wb') as f:
         #     pickle.dump([processor, train_examples, label_list, train_features, eval_examples],f)  
@@ -295,7 +312,7 @@ if __name__ == '__main__':
     # train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_img_pth)
     train_sampler = RandomSampler(train_data)
     train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=opt.train_batch_size, num_workers=4)
-    num_train_steps = int(len(train_examples) / opt.train_batch_size / opt.gradient_accumulation_steps * opt.num_train_epochs)
+    num_train_steps = int(len(train_examples) / opt.train_batch_size / opt.gradient_accumulation_steps * opt.epoch)
     t_total = num_train_steps
     param_optimizer = list(model.named_parameters())
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']

@@ -92,22 +92,20 @@ class MultiLabelTextProcessor(DataProcessor):
             train_examples = self._create_examples(self.train_df, "train")
             return train_examples
         else:
-            data_df = pd.read_csv(os.path.join(data_dir, filename))
-            return self._create_examples(data_df.sample(size), "train")
+            return self._create_examples(self.train_df.sample(size), "train")
         
     def get_dev_examples(self, data_dir='data/', size=-1):
         """See base class."""
         if size == -1:
             return self._create_examples(self.val_df, "dev")
         else:
-            data_df = pd.read_csv(os.path.join(data_dir, filename))
-            return self._create_examples(data_df.sample(size), "dev")
+            return self._create_examples(self.val_df.sample(size), "dev")
 
     def get_test_examples(self, size=-1):
         if size == -1:
-            return self._create_examples(self.test_df, "test")
+            return self._create_examples(self.test_df, "test",labels_available=False)
         else:
-            return self._create_examples(data_df.sample(size), "test")
+            return self._create_examples(self.test_df.sample(size), "test",labels_available=False)
 
     def get_labels(self):
         """See base class."""
@@ -121,14 +119,17 @@ class MultiLabelTextProcessor(DataProcessor):
         for (i, row) in enumerate(df.values):
             guid = row[0]
             text_a = row[1]
-            img_path = row[3]
+            if labels_available:
+                img_path = row[3]
+            else:
+                img_path = row[2]
             if not img_path.endswith('.jpg'):
                 img_path = img_path +'.jpg'
             # image = np.array(Image.open('data/'+img_path).resize((224,224)))
             if labels_available:
                 labels = row[2]
             else:
-                labels = None
+                labels = 999
             examples.append(
                 InputExample(guid=guid, text_a=text_a, labels=labels, image=img_path))
         return examples
@@ -212,7 +213,7 @@ def convert_examples_to_features(examples, max_seq_length, tokenizer):
                 InputFeatures(input_ids=input_ids,
                               input_mask=input_mask,
                               segment_ids=segment_ids,
-                              label_ids=float(example.labels),
+                              label_ids=example.labels,
                               image = example.image))
     return features
         
