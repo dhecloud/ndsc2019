@@ -17,6 +17,8 @@ class BERT(nn.Module):
         self.num_labels= num_labels
         if not self.no_bert:
             self.bert = BertModel.from_pretrained('bert-base-uncased')
+            if opt.freeze_bert:
+                freeze_layer(self.bert)
         self.dropout = nn.Dropout(0.1)
         if self.use_images:
             self.resnet = torch.nn.Sequential(*(list(models.resnet152(pretrained=True).children())[:-1]))
@@ -52,3 +54,7 @@ class BERT(nn.Module):
             return loss
         else:
             return logits
+            
+def freeze_layer(layer):
+    for param in layer.parameters():
+        param.requires_grad = False

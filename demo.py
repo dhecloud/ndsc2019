@@ -13,6 +13,10 @@ parser.add_argument('--batchsize', type=int, default=64, help='train batch size'
 
 opt = parser.parse_args()
 
+#beauty - classes 0-16 predicted - classes 0-16 in data
+#fashion - classes 0-14 predicted - classes 17-30 in data
+#mobile - classes 0-26 predicted - classes 31-57 in data
+
 def load_checkpoint(path, model):
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint['state_dict'])

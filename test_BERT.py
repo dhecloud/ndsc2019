@@ -24,14 +24,18 @@ from network import *
 import argparse
 
 parser = argparse.ArgumentParser(description='ndsc')
+parser.add_argument('--filename', type=str, default='train.csv', help='train csv filename')
 parser.add_argument('--expand', action='store_true', help='expand dataset?')
 parser.add_argument('--epoch', type=int, default=10, help='number of epochs')
 parser.add_argument('--batchsize', type=int, default=32, help='train batch size')
 parser.add_argument('--est', type=int, default=3, help='early stopping')
 parser.add_argument('--downsample', type=int, default=1000, help='number to downsample imbalanced classes')
+parser.add_argument('--num_classes', type=int, default=58, help='number of clases')
 parser.add_argument('--images', type=bool, default=True, help='dont use images to train')
 parser.add_argument('--resnet', type=str, default='resnet152',choices=['resnet18', 'resnet34', 'resnet50','resnet101','resnet152'], help='choice of resnet')
 parser.add_argument('--no_bert', action='store_true', help='dont use bert')
+parser.add_argument('--freeze_bert', action='store_true', help='freeze bert')
+
 
 parser.add_argument('--save_dir', type=str, default="experiments/", help='path/to/save_dir - default:experiments/')
 parser.add_argument('--name', type=str, default=None, help='name of the experiment. It decides where to store samples and models. if none, it will be saved as the date and time')
@@ -278,7 +282,7 @@ if __name__ == '__main__':
     opt = parser.parse_args()
     opt= set_default_opt(opt)
     print_options(opt)
-    model = BERT(opt).cuda()
+    model = BERT(opt, num_labels=opt.num_classes).cuda()
     # model = load_checkpoint('experiments/0_checkpoint.pth.tar', model).cuda()
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=opt.do_lower_case)
     random.seed(opt.seed)
@@ -292,7 +296,7 @@ if __name__ == '__main__':
     #         processor, train_examples, label_list, train_features, eval_examples= pickle.load(p)
     #         print('data/train_stuff.pkl loaded!')
     # else:
-    processor = MultiLabelTextProcessor(max_num=opt.downsample)
+    processor = MultiLabelTextProcessor(filename=opt.filename, num_classes=opt.num_classes, max_num=opt.downsample)
     train_examples = processor.get_train_examples()
     train_features = convert_examples_to_features(train_examples, opt.max_seq_length, tokenizer)
     eval_examples = processor.get_dev_examples()

@@ -61,14 +61,13 @@ class DataProcessor(object):
     
 class MultiLabelTextProcessor(DataProcessor):
 
-    def __init__(self, data_dir='data/', max_num=1000):
+    def __init__(self, data_dir='data/', filename='train.csv', num_classes=58, max_num=1000):
         self.data_dir = data_dir
+        self.num_classes = num_classes
         self.labels = None
-        filename = 'train.csv'
         self.data_df = pd.read_csv(os.path.join(self.data_dir, filename))
-        print(self.data_df.shape)
         keep = []
-        for i in range(58):
+        for i in range(num_classes):
             idxs = self.data_df.index[self.data_df.Category==i].tolist()
             if max_num > len(idxs):
                 keep += random.sample(idxs,  len(idxs))
@@ -109,7 +108,7 @@ class MultiLabelTextProcessor(DataProcessor):
 
     def get_labels(self):
         """See base class."""
-        self.labels = [i for i in range(58)]
+        self.labels = [i for i in range(self.num_classes)]
         
         return self.labels
 
