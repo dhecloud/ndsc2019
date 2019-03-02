@@ -8,14 +8,19 @@ import argparse
 from tqdm import tqdm
 
 parser = argparse.ArgumentParser(description='ndsc_eval')
+parser.add_argument('--cat', type=str, default='beauty', help='last layer size for resnet')
+parser.add_argument('--name', type=str, help='experiment name')
 parser.add_argument('--last_layer_size', type=int, default=768, help='last layer size for resnet')
-parser.add_argument('--batchsize', type=int, default=64, help='train batch size')
-
+parser.add_argument('--batchsize', type=int, default=256, help='train batch size')
+parser.add_argument('--no_bert', action='store_true', help='dont use bert')
+parser.add_argument('--images', type=bool, default=True, help='dont use images to train')
+parser.add_argument('--freeze_bert', action='store_true', help='freeze bert')
 opt = parser.parse_args()
-
 #beauty - classes 0-16 predicted - classes 0-16 in data
 #fashion - classes 0-14 predicted - classes 17-30 in data
 #mobile - classes 0-26 predicted - classes 31-57 in data
+idxs = {'beauty': list(range(17)), 'fashion': list(range(17,31)), 'mobile': list(range(31,58)) }
+opt.num_classes = len(idxs[opt.cat])
 
 def load_checkpoint(path, model):
     checkpoint = torch.load(path)
@@ -25,20 +30,20 @@ def load_checkpoint(path, model):
 
 if __name__ == '__main__':
     MAX_SEQ_LEN = 64
-    test = pd.read_csv('data/test.csv', encoding='utf-8')
-    sample = pd.read_csv('data/data_info_val_sample_submission.csv', encoding='utf-8')
-    assert test.shape[0] == sample.shape[0]
+    test = pd.read_csv('data/'+opt.cat+'_test.csv', encoding='utf-8')
+    test['Category'] = 99
+    # sample = pd.read_csv('data/submission.csv', encoding='utf-8')
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
-    model = BERT(opt).cuda()
-    model = load_checkpoint('experiments/model_best.pth.tar', model).cuda()
+    model = BERT(opt, num_labels=opt.num_classes).cuda()
+    model = load_checkpoint('experiments/'+ opt.name +'/model_best.pth.tar', model).cuda()
     model.eval()
     softmax = nn.Softmax()
-    processor = MultiLabelTextProcessor()
+    processor = MultiLabelTextProcessor(test=opt.cat+'_test.csv')
     test_examples = processor.get_test_examples()
     test_features = convert_examples_to_features(test_examples, MAX_SEQ_LEN, tokenizer)
     test_dataset = SequenceImgDataset(test_features)
     test_sampler = SequentialSampler(test_dataset)
-    test_dataloader = DataLoader(test_dataset, sampler=test_sampler, batch_size=opt.batchsize, num_workers=4)
+    test_dataloader = DataLoader(test_dataset, sampler=test_sampler, batch_size=opt.batchsize, num_workers=8)
     with torch.no_grad():
         # for i, strin in test.iterrows():
         #     stime = time.time()
@@ -75,8 +80,13 @@ if __name__ == '__main__':
             logits = model(input_ids, segment_ids, input_mask, image=img)
             pred = softmax(logits)
             pred=  torch.argmax(pred, dim=1).cpu().numpy()
-            sample.loc[list(range(i*opt.batchsize,(i*opt.batchsize)+no)),'Category'] = pred
+            test.loc[list(range(i*opt.batchsize,(i*opt.batchsize)+no)),'Category'] = pred
                 
             # print("time taken for one search: ", time.time()-stime, "seconds")
-    
-    sample.to_csv('submission.csv', index=False)
+    test = test.drop(['title', 'image_path'], axis='columns')
+    test.Category = test.Category.replace(list(range(opt.num_classes)), idxs[opt.cat] )
+    assert not (test.Category==99).any()
+    test.to_csv('experiments/'+ opt.name+'/submission.csv', index=False)
+    # sample.update(other=test)
+    # sample =sample.astype('int64')
+    # sample.to_csv('data/submission.csv', index=False)

@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import os
 from PIL import Image
-random.seed(99)
 
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
@@ -61,7 +60,7 @@ class DataProcessor(object):
     
 class MultiLabelTextProcessor(DataProcessor):
 
-    def __init__(self, data_dir='data/', filename='train.csv', num_classes=58, max_num=1000):
+    def __init__(self, data_dir='data/', filename='train.csv',num_classes=58, max_num=1000, test='test.csv'):
         self.data_dir = data_dir
         self.num_classes = num_classes
         self.labels = None
@@ -84,7 +83,7 @@ class MultiLabelTextProcessor(DataProcessor):
         print('splitting df..')
         self.train_df = self.data_df.loc[train_idx,:].reset_index(drop=True)
         self.val_df = self.data_df.loc[val_idx,:].reset_index(drop=True)
-        self.test_df = pd.read_csv(os.path.join(self.data_dir, 'test.csv'))
+        self.test_df = pd.read_csv(os.path.join(self.data_dir, test))
 
     def get_train_examples(self, data_dir='data/', size=-1):
         if size == -1:

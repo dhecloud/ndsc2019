@@ -193,7 +193,7 @@ def eval(eval_examples, opt):
     
     # Run prediction for full data
     eval_sampler = SequentialSampler(eval_data)
-    eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=opt.eval_batch_size, num_workers=4)
+    eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=opt.eval_batch_size, num_workers=16)
     
     all_logits = None
     all_labels = None
@@ -315,7 +315,7 @@ if __name__ == '__main__':
     # all_img_pth = torch.tensor([f.image for f in train_features], dtype=torch.uint8)
     # train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_img_pth)
     train_sampler = RandomSampler(train_data)
-    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=opt.train_batch_size, num_workers=4)
+    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=opt.train_batch_size, num_workers=16)
     num_train_steps = int(len(train_examples) / opt.train_batch_size / opt.gradient_accumulation_steps * opt.epoch)
     t_total = num_train_steps
     param_optimizer = list(model.named_parameters())
