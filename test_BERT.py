@@ -22,6 +22,7 @@ import pickle
 from dataloaders import *
 from network import *
 import argparse
+import copy
 
 parser = argparse.ArgumentParser(description='ndsc')
 parser.add_argument('--filename', type=str, default='train.csv', help='train csv filename')
@@ -35,9 +36,9 @@ parser.add_argument('--images', type=bool, default=True, help='dont use images t
 parser.add_argument('--resnet', type=str, default='resnet152',choices=['resnet18', 'resnet34', 'resnet50','resnet101','resnet152'], help='choice of resnet')
 parser.add_argument('--no_bert', action='store_true', help='dont use bert')
 parser.add_argument('--freeze_bert', action='store_true', help='freeze bert')
+parser.add_argument('--resume', type=str, default=None, help='resume checkpoint')
 
-
-parser.add_argument('--save_dir', type=str, default="experiments/", help='path/to/save_dir - default:experiments/')
+parser.add_argument('--save_dir', type=str, default="iments/", help='path/to/save_dir - default:experiments/')
 parser.add_argument('--name', type=str, default=None, help='name of the experiment. It decides where to store samples and models. if none, it will be saved as the date and time')
 
 parser.add_argument('--last_layer_size', type=int, default=768, help='last layer size for resnet')
@@ -128,6 +129,7 @@ def fit(opt, train_dataloader, optimizer, eval_examples):
                 optimizer.zero_grad()
                 global_step += 1
             state = {
+                'epoch': i_,
                 'arch': "QAC",
                 'state_dict': model.state_dict(),
                 'optimizer' : optimizer.state_dict(),
@@ -261,21 +263,22 @@ def warmup_linear(x, warmup=0.002):
     return 1.0 - x
     
 
-def load_checkpoint(path, model):
+def load_checkpoint(path, model, optimizer=None):
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint['state_dict'])
-
-
+    if optimizer is not None:
+        optimizer.load_state_dict(checkpoint['optimizer'])    
+        return model, optimizer
+        
     return model
 
-def model_ensemble(state_dicts):
-    num_dicts = len(state_dicts)
-    
-    new_dict = dict(state_dicts[0]).deepcopy()
-    for name, param in state_dicts[0].named_parameters():
-        new_dict[name].data.copy_(np.mean([statedict[name].data for statedict in statedicts]))
-        
-    return new_dict
+def model_ensemble(models):
+    sds = [model.state_dict() for model in models]
+    num_dicts = len(models)
+    for name in sds[0]:
+        for i in range(1,num_dicts):
+            sds[0][name] += sds[i][name]
+        sds[0][name] /= num_dicts
 
 
 if __name__ == '__main__':
@@ -283,37 +286,19 @@ if __name__ == '__main__':
     opt= set_default_opt(opt)
     print_options(opt)
     model = BERT(opt, num_labels=opt.num_classes).cuda()
-    # model = load_checkpoint('experiments/0_checkpoint.pth.tar', model).cuda()
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=opt.do_lower_case)
     random.seed(opt.seed)
     np.random.seed(opt.seed)
     torch.manual_seed(opt.seed)
     torch.cuda.manual_seed_all(opt.seed)
-    
-    # if os.path.isfile('data/train_stuff.pkl'):
-    #     with open('data/train_stuff.pkl', 'rb') as p:
-    #         print('data/train_stuff.pkl found!')
-    #         processor, train_examples, label_list, train_features, eval_examples= pickle.load(p)
-    #         print('data/train_stuff.pkl loaded!')
-    # else:
     processor = MultiLabelTextProcessor(filename=opt.filename, num_classes=opt.num_classes, max_num=opt.downsample)
     train_examples = processor.get_train_examples()
     train_features = convert_examples_to_features(train_examples, opt.max_seq_length, tokenizer)
     eval_examples = processor.get_dev_examples()
-        # with open('data/train_stuff.pkl', 'wb') as f:
-        #     pickle.dump([processor, train_examples, label_list, train_features, eval_examples],f)  
-        #     print('data/train_stuff.pkl! saved')
-        
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_examples))
     logger.info("  Batch size = %d", opt.train_batch_size)
     train_data = SequenceImgDataset(train_features)
-    # all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
-    # all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
-    # all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
-    # all_label_ids = torch.tensor([f.label_ids for f in train_features], dtype=torch.float)
-    # all_img_pth = torch.tensor([f.image for f in train_features], dtype=torch.uint8)
-    # train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_img_pth)
     train_sampler = RandomSampler(train_data)
     train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=opt.train_batch_size, num_workers=16)
     num_train_steps = int(len(train_examples) / opt.train_batch_size / opt.gradient_accumulation_steps * opt.epoch)
@@ -328,4 +313,7 @@ if __name__ == '__main__':
                          lr=opt.learning_rate,
                          warmup=opt.warmup_proportion,
                          t_total = t_total)
+
+    if opt.resume is not None:
+        model, optimizer = load_checkpoint(opt.save_path +'/'+ opt.resume, model, optimizer).cuda()
     fit(opt, train_dataloader, optimizer, eval_examples)

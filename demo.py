@@ -1,3 +1,4 @@
+import copy
 from test_BERT import *
 import torch
 import torch.nn as nn
@@ -9,7 +10,7 @@ from tqdm import tqdm
 
 parser = argparse.ArgumentParser(description='ndsc_eval')
 parser.add_argument('--cat', type=str, default='beauty', help='last layer size for resnet')
-parser.add_argument('--name', type=str, help='experiment name')
+parser.add_argument('--name', nargs='+', type=str, help='experiment name')
 parser.add_argument('--last_layer_size', type=int, default=768, help='last layer size for resnet')
 parser.add_argument('--batchsize', type=int, default=256, help='train batch size')
 parser.add_argument('--no_bert', action='store_true', help='dont use bert')
@@ -25,7 +26,6 @@ opt.num_classes = len(idxs[opt.cat])
 def load_checkpoint(path, model):
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint['state_dict'])
-
     return model
 
 if __name__ == '__main__':
@@ -35,7 +35,14 @@ if __name__ == '__main__':
     # sample = pd.read_csv('data/submission.csv', encoding='utf-8')
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
     model = BERT(opt, num_labels=opt.num_classes).cuda()
-    model = load_checkpoint('experiments/'+ opt.name +'/model_best.pth.tar', model).cuda()
+    if len(opt.name) > 1:
+        models = [copy.deepcopy(load_checkpoint('experiments/'+ name +'/model_best.pth.tar', model).cuda()) for name in opt.name]
+        model_ensemble(models)
+        model = copy.deepcopy(models[0])
+        del models
+        
+    else:
+        model = load_checkpoint('experiments/'+ opt.name[0] +'/model_best.pth.tar', model).cuda()
     model.eval()
     softmax = nn.Softmax()
     processor = MultiLabelTextProcessor(test=opt.cat+'_test.csv')
@@ -86,7 +93,10 @@ if __name__ == '__main__':
     test = test.drop(['title', 'image_path'], axis='columns')
     test.Category = test.Category.replace(list(range(opt.num_classes)), idxs[opt.cat] )
     assert not (test.Category==99).any()
-    test.to_csv('experiments/'+ opt.name+'/submission.csv', index=False)
+    if len(opt.name) > 1:
+        test.to_csv('experiments/'+opt.cat+'_ensemble_submission.csv', index=False)
+    else:
+        test.to_csv('experiments/'+ opt.name[0]+'/submission.csv', index=False)
     # sample.update(other=test)
     # sample =sample.astype('int64')
     # sample.to_csv('data/submission.csv', index=False)
