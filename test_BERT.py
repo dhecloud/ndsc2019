@@ -36,9 +36,10 @@ parser.add_argument('--images', type=bool, default=True, help='dont use images t
 parser.add_argument('--resnet', type=str, default='resnet152',choices=['resnet18', 'resnet34', 'resnet50','resnet101','resnet152'], help='choice of resnet')
 parser.add_argument('--no_bert', action='store_true', help='dont use bert')
 parser.add_argument('--freeze_bert', action='store_true', help='freeze bert')
+parser.add_argument('--multilingual', action='store_true', help='tokenizer')
 parser.add_argument('--resume', type=str, default=None, help='resume checkpoint')
 
-parser.add_argument('--save_dir', type=str, default="iments/", help='path/to/save_dir - default:experiments/')
+parser.add_argument('--save_dir', type=str, default="experiments/", help='path/to/save_dir - default:experiments/')
 parser.add_argument('--name', type=str, default=None, help='name of the experiment. It decides where to store samples and models. if none, it will be saved as the date and time')
 
 parser.add_argument('--last_layer_size', type=int, default=768, help='last layer size for resnet')
@@ -164,7 +165,7 @@ def accuracy(out, labels):
     
 def accuracy_thresh(y_pred:Tensor, y_true:Tensor):
     "Compute accuracy when `y_pred` and `y_true` are the same size."
-    top1,top3,top5 = 0,0,0
+    top1, top3, top5 = 0,0,0
     y_pred = nn.Softmax()(y_pred)
     _, y_pred = torch.topk(y_pred, 5)
     y_pred = y_pred.float()
@@ -179,8 +180,6 @@ def accuracy_thresh(y_pred:Tensor, y_true:Tensor):
     return top5, top3, top1 
     
 def eval(eval_examples, opt):
-
-
     eval_features = convert_examples_to_features(eval_examples, opt.max_seq_length, tokenizer)
     eval_data = SequenceImgDataset(eval_features)
     logger.info("***** Running evaluation *****")
@@ -286,7 +285,11 @@ if __name__ == '__main__':
     opt= set_default_opt(opt)
     print_options(opt)
     model = BERT(opt, num_labels=opt.num_classes).cuda()
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=opt.do_lower_case)
+    if opt.multilingual:
+        tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-uncased', do_lower_case=opt.do_lower_case)
+    else:
+        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=opt.do_lower_case)
+    
     random.seed(opt.seed)
     np.random.seed(opt.seed)
     torch.manual_seed(opt.seed)

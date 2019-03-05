@@ -16,7 +16,10 @@ class BERT(nn.Module):
         self.no_bert= opt.no_bert
         self.num_labels= num_labels
         if not self.no_bert:
-            self.bert = BertModel.from_pretrained('bert-base-uncased')
+            if opt.multilingual:
+                self.bert = BertModel.from_pretrained('bert-base-multilingual-uncased')
+            else:    
+                self.bert = BertModel.from_pretrained('bert-base-uncased')
             if opt.freeze_bert:
                 freeze_layer(self.bert)
         self.dropout = nn.Dropout(0.1)
