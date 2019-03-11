@@ -27,16 +27,17 @@ import copy
 parser = argparse.ArgumentParser(description='ndsc')
 parser.add_argument('--filename', type=str, default='train.csv', help='train csv filename')
 parser.add_argument('--expand', action='store_true', help='expand dataset?')
-parser.add_argument('--epoch', type=int, default=10, help='number of epochs')
+parser.add_argument('--epoch', type=int, default=15, help='number of epochs')
 parser.add_argument('--batchsize', type=int, default=32, help='train batch size')
-parser.add_argument('--est', type=int, default=3, help='early stopping')
+parser.add_argument('--est', type=int, default=5, help='early stopping')
 parser.add_argument('--downsample', type=int, default=1000, help='number to downsample imbalanced classes')
 parser.add_argument('--num_classes', type=int, default=58, help='number of clases')
-parser.add_argument('--images', type=bool, default=True, help='dont use images to train')
-parser.add_argument('--resnet', type=str, default='resnet152',choices=['resnet18', 'resnet34', 'resnet50','resnet101','resnet152'], help='choice of resnet')
+parser.add_argument('--images', action='store_true', help='dont use images to train')
+parser.add_argument('--resnet', type=str, default='resnet152',choices= ['resnet50', 'resnet152'], help='choice of resnet')
 parser.add_argument('--no_bert', action='store_true', help='dont use bert')
 parser.add_argument('--freeze_bert', action='store_true', help='freeze bert')
-parser.add_argument('--multilingual', action='store_true', help='tokenizer')
+parser.add_argument('--multilingual', action='store_true', help='multilingual bert')
+parser.add_argument('--weighted', action='store_true', help='weighted')
 parser.add_argument('--resume', type=str, default=None, help='resume checkpoint')
 
 parser.add_argument('--save_dir', type=str, default="experiments/", help='path/to/save_dir - default:experiments/')
@@ -249,8 +250,9 @@ def eval(eval_examples, opt):
               'top1': eval_top1_accuracy}
 
     output_eval_file = os.path.join(opt.save_path, "eval_results.txt")
-    with open(output_eval_file, "w") as writer:
+    with open(output_eval_file, "a") as writer:
         logger.info("***** Eval results *****")
+        writer.write('\n=================')
         for key in sorted(result.keys()):
             logger.info("  %s = %s", key, str(result[key]))
             writer.write("%s = %s\n" % (key, str(result[key])))
@@ -284,7 +286,6 @@ if __name__ == '__main__':
     opt = parser.parse_args()
     opt= set_default_opt(opt)
     print_options(opt)
-    model = BERT(opt, num_labels=opt.num_classes).cuda()
     if opt.multilingual:
         tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-uncased', do_lower_case=opt.do_lower_case)
     else:
@@ -295,6 +296,12 @@ if __name__ == '__main__':
     torch.manual_seed(opt.seed)
     torch.cuda.manual_seed_all(opt.seed)
     processor = MultiLabelTextProcessor(filename=opt.filename, num_classes=opt.num_classes, max_num=opt.downsample)
+    if opt.weighted:
+        opt.weighted = torch.tensor(processor.get_class_weights()).float().cuda()
+        print('==============')
+        print(opt.weighted)
+        assert(len(opt.weighted) == opt.num_classes)
+    model = BERT(opt, num_labels=opt.num_classes).cuda()
     train_examples = processor.get_train_examples()
     train_features = convert_examples_to_features(train_examples, opt.max_seq_length, tokenizer)
     eval_examples = processor.get_dev_examples()

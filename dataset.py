@@ -14,8 +14,6 @@ import pandas as pd
 import pickle
 from torchtext import data
 import random
-random.seed(98)
-st = random.getstate()
 from PIL import Image
 
 class SequenceImgDataset(Dataset):
@@ -27,6 +25,7 @@ class SequenceImgDataset(Dataset):
         self.all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
         self.all_label_ids = torch.tensor([f.label_ids for f in features], dtype=torch.float)
         self.all_img_pth = [f.image for f in features]
+        self.centercrop = transforms.CenterCrop(150)
         # self.normalizer = transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))
         assert self.all_input_ids.shape[0] == self.all_input_mask.shape[0] == self.all_segment_ids.shape[0] == self.all_label_ids.shape[0] ==len(self.all_img_pth)
         
@@ -35,5 +34,5 @@ class SequenceImgDataset(Dataset):
 
     def __getitem__(self, i):
         #use_normalizer after all done training
-        image = torch.tensor(np.array(Image.open('data/'+self.all_img_pth[i]).convert('RGB').resize((224,224))) ,dtype=torch.float)
+        image = torch.tensor(np.array(self.centercrop(Image.open('data/'+self.all_img_pth[i]).convert('RGB').resize((224,224))).resize((224,224))) ,dtype=torch.float)
         return   self.all_input_ids[i], self.all_input_mask[i], self.all_segment_ids[i], self.all_label_ids[i], image

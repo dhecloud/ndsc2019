@@ -60,18 +60,23 @@ class DataProcessor(object):
     
 class MultiLabelTextProcessor(DataProcessor):
 
-    def __init__(self, data_dir='data/', filename='train.csv',num_classes=58, max_num=1000, test='test.csv'):
+    def __init__(self, data_dir='data/', filename='train.csv', num_classes=58, max_num=1000, test='test.csv'):
         self.data_dir = data_dir
         self.num_classes = num_classes
         self.labels = None
         self.data_df = pd.read_csv(os.path.join(self.data_dir, filename))
         keep = []
+        self.classes_count = []
         for i in range(num_classes):
             idxs = self.data_df.index[self.data_df.Category==i].tolist()
-            if max_num > len(idxs):
-                keep += random.sample(idxs,  len(idxs))
+            num_sam = len(idxs)
+            if max_num > num_sam:
+                keep += random.sample(idxs,  num_sam)
+                self.classes_count.append(num_sam)
             else:
                 keep += random.sample(idxs,  max_num)
+                self.classes_count.append(max_num)
+                
         self.data_df = self.data_df.iloc[keep,:].reset_index(drop=True)
         total_rows =  self.data_df.shape[0]
         print("total number of rows", total_rows)
@@ -132,6 +137,10 @@ class MultiLabelTextProcessor(DataProcessor):
                 InputExample(guid=guid, text_a=text_a, labels=labels, image=img_path))
         return examples
                 
+    def get_class_weights(self):
+        least = min(self.classes_count)
+        weights = [least/x for x in self.classes_count]
+        return weights
                         
 def convert_examples_to_features(examples, max_seq_length, tokenizer):
     """Loads a data file into a list of `InputBatch`s."""

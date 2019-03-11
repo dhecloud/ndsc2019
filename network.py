@@ -15,6 +15,8 @@ class BERT(nn.Module):
         self.use_images = opt.images
         self.no_bert= opt.no_bert
         self.num_labels= num_labels
+        self.weights = opt.weighted
+        self.resnet_type = opt.resnet
         if not self.no_bert:
             if opt.multilingual:
                 self.bert = BertModel.from_pretrained('bert-base-multilingual-uncased')
@@ -24,14 +26,17 @@ class BERT(nn.Module):
                 freeze_layer(self.bert)
         self.dropout = nn.Dropout(0.1)
         if self.use_images:
-            self.resnet = torch.nn.Sequential(*(list(models.resnet152(pretrained=True).children())[:-1]))
+            if self.resnet_type == 'resnet50':
+                self.resnet = torch.nn.Sequential(*(list(models.resnet50(pretrained=True).children())[:-1]))
+            else:
+                self.resnet = torch.nn.Sequential(*(list(models.resnet152(pretrained=True).children())[:-1]))
             self.resnet_downsample = torch.nn.Linear(2048, opt.last_layer_size)
         if self.no_bert:
             self.classifier = torch.nn.Linear(opt.last_layer_size, num_labels)
         elif self.use_images:
             self.classifier = torch.nn.Linear(768+opt.last_layer_size, num_labels)
         else:
-            self.test = torch.nn.Linear(768, num_labels)
+            self.classifier = torch.nn.Linear(768, num_labels)
 
 
     def forward(self, input_ids=None, token_type_ids=None, attention_mask=None, labels=None, image=None):
@@ -52,7 +57,10 @@ class BERT(nn.Module):
         
 
         if labels is not None:
-            loss_fct = nn.CrossEntropyLoss()
+            if self.weights is not False:
+                loss_fct = nn.CrossEntropyLoss(weight=self.weights)
+            else:
+                loss_fct = nn.CrossEntropyLoss()
             loss = loss_fct(logits, labels.long())
             return loss
         else:
